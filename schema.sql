@@ -1,6 +1,6 @@
-CREATE DATABASE bamazon;
+CREATE DATABASE bamazon_db;
 
-USE bamazon;
+USE bamazon_db;
 
 CREATE TABLE products (
     item_id INT AUTO_INCREMENT,
