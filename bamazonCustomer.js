@@ -1,107 +1,117 @@
-// Require Inquirer & Product data
-const inquirer = require('inquirer');
-const bamazonData = require('./lib/bamazonData');
+// Require Inquirer & MySQL & Console table & Clear
+require("console.table");
+var mysql = require("mysql");
+var inquirer = require("inquirer");
 const clear = require('clear');
 
-// Connect to DB & display welcome message
-clear();
-bamazonData.openConnection(welcomeMessage);
+// Configure connection
+var connection = mysql.createConnection({
+    host: "localhost",
+    port: 3306,
+    user: "root",
+    password: "turkey@13",
+    database: "bamazon_db"
+});
 
-
-// Verify if customer wants to complete a purchase
-function verifyPurchase(productName, productPrice, productQuantity) {
-    var question = [
-        {
-            type: 'input',
-            name: 'yesOrNo',
-            message: 
-            `Are you sure you'd like to purchase ${ productQuantity } ${ productName }(s) for $${ productPrice * productQuantity }? ('y/n')`,
-            validate: function(val) {
-                var lower = val.toLowerCase();
-                if(lower === 'y' || lower === 'n') return true;
-                return 'You must enter y or n';
-            }
-        },
-    ];
-    inquirer.prompt(question).then(answer => {
-        if(answer.yesOrNo === 'y') {
-            bamazonData.removeProductFromDatabase(productName, productQuantity, displayDepartments);
-        } else {
-            displayDepartments();
-        }
-    });
+// Connect to DB
+connection.connect(function(err) {
+    if (err) throw err;
+    console.log("Connected to DB as ID " + connection.threadId + "\n");
+    welcomeMessage();
     
+});
+
+// Display welcome message & products to select from
+function welcomeMessage() {
+    console.log(
+        `Welcome to Bamazon!  Fulfilling your weird Command Line Interface shopping needs since 2019.\n`
+    );
+    readProducts();
 }
 
-// Display products available for purchase
-function selectProduct(products) {
-    clear();
-    var choices = [];
-    for(var i = 0; i < products.length; i++) choices.push(products[i].product_name + " | $" + products[i].price);
-    var questions = [
-        {
-            name: "product",
-            message: "What would you like to buy?",
-            type: 'list',
-            choices: choices,
-        },
-        {
-            name: "quantity",
-            message: "How many would you like?",
-            type: 'input',
-            validate: (value) => {
-                var valid = !Number.isNaN(parseFloat(value));
-                return valid || "Please enter a number.";
-            }
-        }
-    ];
-    inquirer.prompt(questions).then(answer => {
-        // Grab product name displayed before the |
-        var productName = answer.product.substring(0, answer.product.indexOf('|')).trim();
-        // Price is after | 
-        var productPrice = answer.product.substring(answer.product.indexOf('$') + 1);
-        
-        verifyPurchase(productName, productPrice, answer.quantity);
+// Return all products
+function readProducts() {
+    connection.query("SELECT * FROM products", function(err, res) {
+        if (err) throw err;
+
+        console.table(res);
+        selectProduct();
+
     });
-}
+};
 
-// Display departments for the user to select from
-function selectDepartment(data) {
-    var choices = [];
-    for(var i = 0; i < data.length; i++) choices.push(data[i].department_name);
-    choices.push('Quit');
-    var question = [
-        {
-            name: 'department_select',
-            type: 'list',
-            message: "Please select the department you'd like to shop in.",
-            choices: choices,
-        }
-    ];
-    inquirer.prompt(question).then(answer => {
-        if(answer.department_select == 'Quit') {
-            console.log('Goodbye!');
-            bamazonData.closeConnection();
-            process.exit();
-        }
-        var products = bamazonData.getProductsByDepartmentName(answer.department_select, (products) => {
-            selectProduct(products);
-        });
+function selectProduct() {
+    inquirer.prompt([
+       {
+           type: "input",
+           name: "userInput",
+           message: "What is the ID of the product you wish to purchase?"
+       } ,
+       {
+           type: "input",
+           name: "userQuantity",
+           message: "How many would you like to purchase?"
+       }
+    ]).then(function(res) {
+        // console.log(res);
+        buyProduct(res.userInput, res.userQuantity);
     })
 }
 
-// Display welcome message & departments to select from
-function welcomeMessage() {
-    console.log(
-        `Welcome to Bamazon!  Fulfilling your weird command line shopping needs since 2019.\n`
-    );
-    displayDepartments();
-}
-
-
-// Display departments
-function displayDepartments() {
-    bamazonData.getDepartments(data => {
-        selectDepartment(data);        
+function continueShopping() {
+    inquirer.prompt([
+        {
+            type: "confirm",
+            name: "continue",
+            message: "Continue shopping?"
+        }
+    ]).then(function(res) {
+        if (res.continue === true) {
+            readProducts();
+        } else if (res.continue === false) {
+            console.log('Goodbye!');
+            connection.end()
+        }
     });
 }
+
+function buyProduct(product, amount) {
+    // console.log(product);
+    connection.query("SELECT * FROM products WHERE ?", 
+        {item_id: product}, 
+        function(err, res){
+            // console.log(res[0]);
+            if (amount > res[0].stock) {
+               console.log("\n\nInsufficient quantity!\n\n");
+               continueShopping()
+           } else {
+                var totalCost = amount * res[0].price;
+                var inventory = res[0].stock - amount;
+                var id = res[0].item_id;
+                updateProduct(id, inventory);
+                console.log("\n\nYour total will be: $" + totalCost + "\n\n");
+                
+           }
+            
+        })
+};
+
+function updateProduct(id, inv) {
+    var query = connection.query(
+        "UPDATE products SET ? WHERE ?",
+        [
+            {
+                stock: inv
+            },
+            {
+                item_id: id
+            }
+        ],
+        function(err, res) {
+            // console.log(res.affectedRows + " products updated!\n");
+            continueShopping();
+        }
+    );
+    // console.log(query.sql);
+};
+
